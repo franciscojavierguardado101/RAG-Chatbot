@@ -1,0 +1,39 @@
+What is RAG (Retrieval-Augmented Generation)?
+
+RAG stands for Retrieval-Augmented Generation. It is an AI architecture pattern that combines two powerful techniques: information retrieval and text generation.
+
+How RAG Works:
+1. Ingestion: Documents are split into chunks and converted into vector embeddings (numerical representations of meaning).
+2. Storage: These embeddings are stored in a vector database (like Chroma, Pinecone, or Weaviate).
+3. Retrieval: When a user asks a question, the question is also embedded and the most similar document chunks are retrieved using semantic search.
+4. Generation: The retrieved chunks are passed as context to a Large Language Model (LLM) like GPT-4 or Claude, which generates a response grounded in that context.
+
+Why RAG Matters:
+- Reduces hallucinations by grounding the LLM in real data
+- Allows LLMs to answer questions about private or up-to-date data they were not trained on
+- Cost-effective compared to fine-tuning a model
+- Easy to update — just add or remove documents from the vector store
+
+Key Components:
+- Embeddings Model: Converts text to vectors (e.g., OpenAI text-embedding-3-small)
+- Vector Database: Stores and retrieves embeddings by similarity (e.g., Chroma, Pinecone)
+- LLM: Generates the final answer using retrieved context (e.g., GPT-4o, Claude)
+- Orchestration: LangChain is a popular framework for connecting these pieces
+
+Common Use Cases:
+- Customer support chatbots trained on company documentation
+- Legal research assistants that cite specific clauses
+- Internal knowledge bases
+- Resume or portfolio chatbots for personal branding
+- Medical or scientific literature Q&A
+
+RAG vs Fine-tuning:
+RAG is preferred when the data changes frequently, when you need source citations, or when you want to avoid expensive model retraining. Fine-tuning is preferred when you need to change the model's behavior or writing style at a fundamental level.
+
+This RAG Chatbot Project Stack:
+- LangChain: Orchestrates the retrieval and generation pipeline
+- OpenAI text-embedding-3-small: Creates vector embeddings for documents
+- ChromaDB: Persists and queries document vectors locally
+- GPT-4o-mini: Generates answers from retrieved context
+- FastAPI: Serves the backend API with streaming support
+- Next.js + Tailwind: Provides the frontend chat interface
