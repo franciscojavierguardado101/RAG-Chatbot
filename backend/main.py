@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -6,7 +7,7 @@ from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import tempfile
 import shutil
 import json
@@ -14,18 +15,47 @@ import os
 
 load_dotenv()
 
-app = FastAPI(title="RAG Chatbot API")
+CHROMA_PATH = "./chroma_db"
+SAMPLE_DOC = "./sample_docs/what_is_rag.txt"
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+
+def seed_sample_doc():
+    """Auto-load the sample doc on startup so the demo always works."""
+    if not os.path.exists(SAMPLE_DOC):
+        return
+    try:
+        vectorstore = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
+        existing = vectorstore._collection.get(where={"source": "what_is_rag.txt"})
+        if existing["ids"]:
+            return  # already indexed
+        loader = TextLoader(SAMPLE_DOC, encoding="utf-8")
+        documents = loader.load()
+        for doc in documents:
+            doc.metadata["source"] = "what_is_rag.txt"
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = splitter.split_documents(documents)
+        vectorstore.add_documents(chunks)
+        print(f"Seeded sample doc: {len(chunks)} chunks indexed.")
+    except Exception as e:
+        print(f"Seed warning: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    seed_sample_doc()
+    yield
+
+
+app = FastAPI(title="RAG Chatbot API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-CHROMA_PATH = "./chroma_db"
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
 
 def get_vectorstore():
