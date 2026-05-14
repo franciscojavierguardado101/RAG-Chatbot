@@ -230,6 +230,7 @@ RAG-Chatbot/
 ├── backend/
 │   ├── main.py              # FastAPI app — all endpoints + SSE streaming
 │   ├── requirements.txt     # Python dependencies
+│   ├── Dockerfile           # Container image for the backend
 │   └── .env.example         # Environment variable template
 │
 ├── frontend/
@@ -237,18 +238,109 @@ RAG-Chatbot/
 │   │   ├── layout.tsx       # Root layout + metadata
 │   │   ├── page.tsx         # Main page — sidebar + chat layout
 │   │   └── globals.css      # Tailwind base + markdown prose styles
-│   └── components/
-│       ├── ChatInterface.tsx    # SSE streaming chat, input, state
-│       ├── MessageBubble.tsx    # User/AI message renderer (markdown)
-│       ├── FileUpload.tsx       # Drag-and-drop uploader with status
-│       └── DocumentList.tsx     # Indexed doc list with delete
+│   ├── components/
+│   │   ├── ChatInterface.tsx    # SSE streaming chat, input, state
+│   │   ├── MessageBubble.tsx    # User/AI message renderer (markdown)
+│   │   ├── FileUpload.tsx       # Drag-and-drop uploader with status
+│   │   └── DocumentList.tsx     # Indexed doc list with delete
+│   └── Dockerfile           # Multi-stage container image for the frontend
+│
+├── k8s/                     # Kubernetes manifests
+│   ├── namespace.yaml
+│   ├── secret.yaml
+│   ├── configmap.yaml
+│   ├── backend-deployment.yaml
+│   ├── backend-service.yaml
+│   ├── frontend-deployment.yaml
+│   ├── frontend-service.yaml
+│   ├── ingress.yaml
+│   └── hpa.yaml
 │
 ├── sample_docs/
 │   └── what_is_rag.txt      # Test document — upload this to get started
 │
+├── docker-compose.yml
 ├── .gitignore
 └── README.md
 ```
+
+---
+
+## Cloud-Native Deployment
+
+This project is fully containerized and includes production-grade Kubernetes manifests.
+
+### Run with Docker Compose (local containers)
+
+```bash
+# Make sure your .env is set up in /backend first, then:
+docker compose up --build
+
+# Frontend → http://localhost:3000
+# Backend  → http://localhost:8000
+```
+
+### Kubernetes Architecture
+
+```
+                        ┌─────────────────────────────┐
+                        │     Ingress (nginx)          │
+                        │  rag-chatbot.example.com     │
+                        └────────┬──────────┬──────────┘
+                                 │          │
+                    ┌────────────▼──┐   ┌───▼────────────┐
+                    │ frontend-svc  │   │  backend-svc   │
+                    │  (ClusterIP)  │   │  (ClusterIP)   │
+                    └────────┬──────┘   └──────┬─────────┘
+                             │                 │
+              ┌──────────────▼──┐   ┌──────────▼──────────┐
+              │ frontend        │   │  backend             │
+              │ Deployment      │   │  Deployment          │
+              │ replicas: 2     │   │  replicas: 1         │
+              │ Next.js 14      │   │  FastAPI + LangChain │
+              └─────────────────┘   └──────────┬───────────┘
+                                               │
+                                    ┌──────────▼───────────┐
+                                    │  chroma-storage       │
+                                    │  (emptyDir / PVC)     │
+                                    └───────────────────────┘
+```
+
+### Deploy to Kubernetes
+
+```bash
+# 1. Apply namespace first
+kubectl apply -f k8s/namespace.yaml
+
+# 2. Create the secret with your real API key
+kubectl create secret generic rag-chatbot-secrets \
+  --from-literal=openai-api-key=sk-proj-... \
+  --namespace=rag-chatbot
+
+# 3. Apply all remaining manifests
+kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/backend-deployment.yaml
+kubectl apply -f k8s/backend-service.yaml
+kubectl apply -f k8s/frontend-deployment.yaml
+kubectl apply -f k8s/frontend-service.yaml
+kubectl apply -f k8s/ingress.yaml
+kubectl apply -f k8s/hpa.yaml
+
+# 4. Check everything is running
+kubectl get pods -n rag-chatbot
+kubectl get services -n rag-chatbot
+```
+
+### Key Cloud-Native Features
+
+| Feature | Implementation |
+|---|---|
+| **Health probes** | Liveness + readiness on `/health` for backend, `/` for frontend |
+| **Resource limits** | CPU and memory requests/limits on every container |
+| **Auto-scaling** | HorizontalPodAutoscaler scales backend 1→5 pods, frontend 2→6 pods |
+| **Secrets management** | OpenAI API key stored in K8s Secret, never in ConfigMap or image |
+| **SSE compatibility** | Ingress annotated with `proxy-buffering: off` for streaming |
+| **Namespace isolation** | All resources scoped to `rag-chatbot` namespace |
 
 ---
 
@@ -277,6 +369,9 @@ A 200-character overlap between chunks ensures that context around a sentence bo
 - Next.js App Router with TypeScript and Tailwind CSS
 - Real-time data streaming on the frontend using the `ReadableStream` API
 - ChromaDB vector store operations (add, query, delete by metadata)
+- Docker multi-stage builds for Python and Next.js services
+- Kubernetes Deployments, Services, Ingress, Secrets, ConfigMaps, and HPA
+- Cloud-native patterns: health probes, resource limits, namespace isolation
 
 ---
 

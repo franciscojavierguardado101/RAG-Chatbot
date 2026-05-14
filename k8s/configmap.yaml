@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-chatbot-config
+  namespace: rag-chatbot
+data:
+  CHROMA_PATH: "/app/chroma_db"
+  NEXT_PUBLIC_API_URL: "http://backend-service.rag-chatbot.svc.cluster.local:8000"
