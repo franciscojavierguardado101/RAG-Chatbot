@@ -6,6 +6,16 @@ Built as a portfolio project to demonstrate practical AI Engineering skills: RAG
 
 ---
 
+## Resume Summary
+
+**LangChain + OpenAI + ChromaDB + FastAPI + Next.js 14 + Docker + Kubernetes + Render + Vercel (AI Engineering)**
+
+**Live:** https://rag-chatbot-sandy-nine.vercel.app/
+
+A full-stack RAG (Retrieval-Augmented Generation) chatbot that allows users to upload private documents (PDF, TXT, Markdown) and query them through a real-time AI chat interface. The backend is built with Python FastAPI, using LangChain to orchestrate a RAG pipeline that embeds documents with OpenAI's `text-embedding-3-small` model, stores vectors in a ChromaDB vector database, and streams answers token-by-token via GPT-4o-mini using Server-Sent Events (SSE). The frontend is built in Next.js 14 with TypeScript and Tailwind CSS, consuming the FastAPI backend with live streaming responses and source citations on every answer. The full stack is containerized with Docker multi-stage builds and includes production-grade Kubernetes manifests — Deployments, Services, Ingress (SSE-compatible), Secrets management, and HorizontalPodAutoscaler for both services. The FastAPI backend is hosted on Render and the Next.js frontend is deployed on Vercel.
+
+---
+
 ## What is RAG?
 
 **RAG (Retrieval-Augmented Generation)** is an AI architecture that supercharges language models with your own private data:
