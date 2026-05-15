@@ -1,0 +1,53 @@
+---
+# Playbook 4: Rollback to the previous Git commit
+# Use this if a bad deploy goes out and needs to be reverted immediately
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/04-rollback.yml
+
+- name: Rollback RAG Chatbot to previous version
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Get current commit hash (before rollback)
+      command: git -C "{{ app_dir }}" rev-parse HEAD
+      register: current_commit
+      become_user: "{{ app_user }}"
+
+    - name: Show current commit
+      debug:
+        msg: "Rolling back from: {{ current_commit.stdout }}"
+
+    - name: Roll back to previous commit
+      command: git -C "{{ app_dir }}" reset --hard HEAD~1
+      become_user: "{{ app_user }}"
+
+    - name: Get new commit hash (after rollback)
+      command: git -C "{{ app_dir }}" rev-parse HEAD
+      register: rolled_back_commit
+      become_user: "{{ app_user }}"
+
+    - name: Rebuild and restart all containers at rolled-back version
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        build: always
+        state: present
+      become_user: "{{ app_user }}"
+
+    - name: Wait for backend health check
+      uri:
+        url: "http://localhost:{{ backend_port }}/health"
+        method: GET
+        status_code: 200
+      retries: 10
+      delay: 8
+      register: health
+      until: health.status == 200
+
+    - name: Rollback summary
+      debug:
+        msg:
+          - "Rollback complete"
+          - "Was: {{ current_commit.stdout }}"
+          - "Now: {{ rolled_back_commit.stdout }}"

@@ -1,0 +1,67 @@
+---
+# Playbook 2: Deploy the RAG Chatbot application
+# Clones the repo, injects secrets, and starts all containers via Docker Compose
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/02-deploy.yml \
+#     -e "openai_api_key=sk-proj-..."
+
+- name: Deploy RAG Chatbot
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Clone or update repository
+      git:
+        repo: "{{ app_repo }}"
+        dest: "{{ app_dir }}"
+        version: "{{ app_branch }}"
+        force: true
+      become_user: "{{ app_user }}"
+
+    - name: Set correct ownership on app directory
+      file:
+        path: "{{ app_dir }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        recurse: true
+
+    - name: Template .env file with OpenAI API key
+      template:
+        src: ../templates/env.j2
+        dest: "{{ app_dir }}/backend/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0600"   # Owner read/write only — protects the API key
+
+    - name: Pull latest Docker images
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        pull: always
+      become_user: "{{ app_user }}"
+      ignore_errors: true   # Falls back to build if images not in registry
+
+    - name: Build and start containers with Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        build: always
+        state: present
+      become_user: "{{ app_user }}"
+      register: compose_output
+
+    - name: Wait for backend health check to pass
+      uri:
+        url: "http://localhost:{{ backend_port }}/health"
+        method: GET
+        status_code: 200
+      register: health_check
+      retries: 10
+      delay: 8
+      until: health_check.status == 200
+
+    - name: Deployment summary
+      debug:
+        msg:
+          - "RAG Chatbot deployed successfully"
+          - "Backend:  http://{{ ansible_host }}:{{ backend_port }}"
+          - "Frontend: http://{{ ansible_host }}:{{ frontend_port }}"

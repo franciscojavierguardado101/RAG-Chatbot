@@ -1,0 +1,16 @@
+# Shared variables across all playbooks
+app_repo: "https://github.com/franciscojavierguardado101/Rag-Chatbot.git"
+app_branch: "master"
+app_dir: "/opt/rag-chatbot"
+app_user: "ubuntu"
+
+# Docker
+docker_compose_version: "2.27.0"
+
+# Ports exposed on the host
+backend_port: 8000
+frontend_port: 3000
+
+# OpenAI — set via: ansible-playbook ... -e "openai_api_key=sk-proj-..."
+# Never hardcode this value here
+openai_api_key: "{{ lookup('env', 'OPENAI_API_KEY') }}"

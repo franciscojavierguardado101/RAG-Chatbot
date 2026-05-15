@@ -1,0 +1,100 @@
+---
+# Playbook 1: Provision a fresh Ubuntu server
+# Installs Docker, Docker Compose, Git, and configures the firewall
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/01-provision.yml
+
+- name: Provision server for RAG Chatbot
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Update apt package cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install system dependencies
+      apt:
+        name:
+          - curl
+          - git
+          - ca-certificates
+          - gnupg
+          - ufw
+          - python3-pip
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker apt repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker Engine
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is running and enabled
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add app user to docker group
+      user:
+        name: "{{ app_user }}"
+        groups: docker
+        append: true
+
+    - name: Configure UFW — allow SSH
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Configure UFW — allow backend port
+      ufw:
+        rule: allow
+        port: "{{ backend_port }}"
+        proto: tcp
+
+    - name: Configure UFW — allow frontend port
+      ufw:
+        rule: allow
+        port: "{{ frontend_port }}"
+        proto: tcp
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
+        policy: deny
+
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+    - name: Print provisioning summary
+      debug:
+        msg:
+          - "Server provisioned successfully"
+          - "Docker installed and running"
+          - "Firewall configured (ports 22, {{ backend_port }}, {{ frontend_port }})"
+          - "App directory: {{ app_dir }}"
+          - "Next step: run playbooks/02-deploy.yml"

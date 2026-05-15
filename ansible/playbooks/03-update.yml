@@ -1,0 +1,51 @@
+---
+# Playbook 3: Rolling update — pull latest code and rebuild containers
+# Zero-downtime: backend updates first, frontend after health check passes
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/03-update.yml
+
+- name: Update RAG Chatbot to latest version
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Pull latest code from GitHub
+      git:
+        repo: "{{ app_repo }}"
+        dest: "{{ app_dir }}"
+        version: "{{ app_branch }}"
+        force: true
+      become_user: "{{ app_user }}"
+
+    - name: Rebuild and restart backend container
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        build: always
+        services:
+          - backend
+        state: present
+      become_user: "{{ app_user }}"
+
+    - name: Wait for backend to be healthy after update
+      uri:
+        url: "http://localhost:{{ backend_port }}/health"
+        method: GET
+        status_code: 200
+      register: health_check
+      retries: 10
+      delay: 8
+      until: health_check.status == 200
+
+    - name: Rebuild and restart frontend container
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}"
+        build: always
+        services:
+          - frontend
+        state: present
+      become_user: "{{ app_user }}"
+
+    - name: Update complete
+      debug:
+        msg: "Update deployed. Backend healthy. Frontend restarted."

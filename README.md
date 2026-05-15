@@ -8,11 +8,11 @@ Built as a portfolio project to demonstrate practical AI Engineering skills: RAG
 
 ## Resume Summary
 
-**LangChain + OpenAI + ChromaDB + FastAPI + Next.js 14 + Docker + Kubernetes + Render + Vercel (AI Engineering)**
+**LangChain + OpenAI + ChromaDB + FastAPI + Next.js 14 + Docker + Kubernetes + Ansible + Render + Vercel (AI Engineering)**
 
 **Live:** https://rag-chatbot-sandy-nine.vercel.app/
 
-A full-stack RAG (Retrieval-Augmented Generation) chatbot that allows users to upload private documents (PDF, TXT, Markdown) and query them through a real-time AI chat interface. The backend is built with Python FastAPI, using LangChain to orchestrate a RAG pipeline that embeds documents with OpenAI's `text-embedding-3-small` model, stores vectors in a ChromaDB vector database, and streams answers token-by-token via GPT-4o-mini using Server-Sent Events (SSE). The frontend is built in Next.js 14 with TypeScript and Tailwind CSS, consuming the FastAPI backend with live streaming responses and source citations on every answer. The full stack is containerized with Docker multi-stage builds and includes production-grade Kubernetes manifests — Deployments, Services, Ingress (SSE-compatible), Secrets management, and HorizontalPodAutoscaler for both services. The FastAPI backend is hosted on Render and the Next.js frontend is deployed on Vercel.
+A full-stack RAG (Retrieval-Augmented Generation) chatbot that allows users to upload private documents (PDF, TXT, Markdown) and query them through a real-time AI chat interface. The backend is built with Python FastAPI, using LangChain to orchestrate a RAG pipeline that embeds documents with OpenAI's `text-embedding-3-small` model, stores vectors in a ChromaDB vector database, and streams answers token-by-token via GPT-4o-mini using Server-Sent Events (SSE). The frontend is built in Next.js 14 with TypeScript and Tailwind CSS, consuming the FastAPI backend with live streaming responses and source citations on every answer. The full stack is containerized with Docker multi-stage builds and includes production-grade Kubernetes manifests — Deployments, Services, Ingress (SSE-compatible), Secrets management, and HorizontalPodAutoscaler for both services. Server provisioning and application deployment are fully automated with Ansible playbooks covering Docker installation, firewall configuration, secret injection, health-checked deployments, rolling updates, and one-command rollback. The FastAPI backend is hosted on Render and the Next.js frontend is deployed on Vercel.
 
 ---
 
@@ -266,6 +266,19 @@ RAG-Chatbot/
 │   ├── ingress.yaml
 │   └── hpa.yaml
 │
+├── ansible/                 # Infrastructure automation
+│   ├── inventory/
+│   │   └── hosts.yml        # Target servers
+│   ├── group_vars/
+│   │   └── all.yml          # Shared variables
+│   ├── templates/
+│   │   └── env.j2           # .env file template (Jinja2)
+│   └── playbooks/
+│       ├── 01-provision.yml # Install Docker, configure firewall
+│       ├── 02-deploy.yml    # Clone repo, inject secrets, start containers
+│       ├── 03-update.yml    # Rolling update with health check gate
+│       └── 04-rollback.yml  # One-command rollback to previous commit
+│
 ├── sample_docs/
 │   └── what_is_rag.txt      # Test document — upload this to get started
 │
@@ -354,6 +367,87 @@ kubectl get services -n rag-chatbot
 
 ---
 
+## Ansible — Automated Server Provisioning & Deployment
+
+Ansible automates everything from a blank server to a running application in a single command. No manual SSH, no clicking around — fully repeatable infrastructure.
+
+```
+ansible/
+├── inventory/
+│   └── hosts.yml              # Target server(s) and connection config
+├── group_vars/
+│   └── all.yml                # Shared variables (repo URL, ports, paths)
+├── templates/
+│   └── env.j2                 # Jinja2 template — injects OpenAI key into .env
+└── playbooks/
+    ├── 01-provision.yml       # Fresh server setup: Docker, firewall, directories
+    ├── 02-deploy.yml          # Clone repo, inject secrets, docker compose up
+    ├── 03-update.yml          # Rolling update: rebuild backend → health check → frontend
+    └── 04-rollback.yml        # One-command rollback to previous Git commit
+```
+
+### What each playbook does
+
+**01-provision.yml** — Run once on a brand new server:
+- Updates packages and installs system dependencies
+- Adds the official Docker apt repository and installs Docker Engine
+- Adds the app user to the `docker` group
+- Configures UFW firewall (allows ports 22, 8000, 3000 — denies everything else)
+- Creates the `/opt/rag-chatbot` application directory
+
+**02-deploy.yml** — Deploy the application:
+- Clones the GitHub repository to the server
+- Templates the `.env` file with the OpenAI API key (mode `0600` — owner only)
+- Builds and starts all containers via Docker Compose
+- Polls `/health` until the backend passes before finishing
+
+**03-update.yml** — Rolling update with zero downtime:
+- Pulls the latest code from GitHub
+- Rebuilds and restarts the backend first
+- Waits for the backend health check to pass
+- Only then rebuilds and restarts the frontend
+
+**04-rollback.yml** — Instant rollback:
+- Records the current commit hash
+- Resets to the previous commit (`HEAD~1`)
+- Rebuilds containers at the rolled-back version
+- Confirms health check passes and prints both commit hashes
+
+### Usage
+
+```bash
+# Install Ansible (Mac)
+brew install ansible
+
+# 1. Edit inventory/hosts.yml — set your server IP and SSH key path
+
+# 2. Provision a fresh server (run once)
+ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/01-provision.yml
+
+# 3. Deploy the application
+ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/02-deploy.yml \
+  -e "openai_api_key=sk-proj-..."
+
+# 4. Push a code update
+ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/03-update.yml
+
+# 5. Something broke? Roll back instantly
+ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/04-rollback.yml
+```
+
+### Key Ansible Features
+
+| Feature | Implementation |
+|---|---|
+| **Secret injection** | OpenAI key passed via `-e` flag or env var, never stored in repo |
+| **Idempotent** | Safe to re-run any playbook — won't break a healthy deployment |
+| **Health-gated deploys** | Backend must pass `/health` before frontend is touched |
+| **Rollback** | Single command reverts to previous Git commit and rebuilds |
+| **Firewall automation** | UFW configured and enabled as part of provisioning |
+| **File permissions** | `.env` written with mode `0600` to protect the API key |
+
+---
+
 ## Key Engineering Decisions
 
 **Why ChromaDB over Pinecone?**
@@ -382,6 +476,7 @@ A 200-character overlap between chunks ensures that context around a sentence bo
 - Docker multi-stage builds for Python and Next.js services
 - Kubernetes Deployments, Services, Ingress, Secrets, ConfigMaps, and HPA
 - Cloud-native patterns: health probes, resource limits, namespace isolation
+- Ansible playbooks for automated server provisioning, deployment, rolling updates, and rollback
 
 ---
 
