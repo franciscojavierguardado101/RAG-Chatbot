@@ -369,82 +369,118 @@ kubectl get services -n rag-chatbot
 
 ## Ansible — Automated Server Provisioning & Deployment
 
-Ansible automates everything from a blank server to a running application in a single command. No manual SSH, no clicking around — fully repeatable infrastructure.
+### What is Ansible?
+
+Ansible is an **automation tool** used by DevOps and platform engineering teams to manage servers without ever manually logging in. Instead of SSHing into a server and typing commands by hand, you write a **playbook** (a YAML file that describes what you want done), and Ansible connects to the server and does it for you — automatically, consistently, and repeatably.
+
+Think of it like a script, but smarter:
+- It connects to remote servers over SSH
+- It runs tasks in order (install Docker, configure firewall, deploy app, etc.)
+- If you run it twice, it won't break anything — it only makes changes when needed
+- One command can set up 1 server or 100 servers the exact same way
+
+### Why does this project use Ansible?
+
+This RAG chatbot has two moving parts — a Python backend and a Next.js frontend — both running inside Docker containers. When deploying to a real server (like an AWS EC2 or DigitalOcean droplet), you would normally have to:
+
+1. SSH into the server
+2. Install Docker manually
+3. Configure the firewall
+4. Clone the repo
+5. Create the `.env` file with the API key
+6. Run `docker compose up`
+7. Hope you didn't miss a step
+
+**Ansible eliminates all of that.** Instead, you run one command from your laptop and it does every step automatically — in the right order, every time, on any server.
+
+### How it relates to this project
+
+```
+Your Laptop (Mac)                    Remote Ubuntu Server
+─────────────────                    ────────────────────
+                                     
+ansible-playbook  ──── SSH ────▶     1. Install Docker
+  01-provision                       2. Configure firewall
+                                     3. Create app directory
+
+ansible-playbook  ──── SSH ────▶     4. Clone GitHub repo
+  02-deploy                          5. Inject OpenAI API key
+                                     6. docker compose up --build
+                                     7. Wait for /health ✓
+
+ansible-playbook  ──── SSH ────▶     8. Pull latest code
+  03-update                          9. Rebuild backend → health check
+                                    10. Rebuild frontend
+
+ansible-playbook  ──── SSH ────▶    11. Reset to previous commit
+  04-rollback                       12. Rebuild everything
+                                    13. Confirm health check ✓
+```
+
+### The 4 playbooks explained simply
+
+**`01-provision.yml` — Set up a brand new server**
+Run this once when you get a fresh server. It installs Docker, sets up the firewall to only allow the ports this app needs (22 for SSH, 8000 for the backend, 3000 for the frontend), and creates the folder where the app will live.
+
+**`02-deploy.yml` — Deploy the application**
+Run this to go from zero to a live running app. It clones this GitHub repo onto the server, creates the `.env` file with your OpenAI API key (without ever storing the key in the repo), builds the Docker images, starts both containers, and waits to confirm the backend is healthy before finishing.
+
+**`03-update.yml` — Push a code update safely**
+Run this whenever you push new code and want to update the live server. It pulls the latest code, restarts the backend first, waits for the backend health check to pass, and only then restarts the frontend. This way the site is never fully down during an update.
+
+**`04-rollback.yml` — Undo a bad deployment instantly**
+Run this if something breaks after an update. It automatically reverts to the previous version of the code, rebuilds the containers, and confirms everything is healthy — all in one command. No guessing, no panic.
+
+### File structure
 
 ```
 ansible/
 ├── inventory/
-│   └── hosts.yml              # Target server(s) and connection config
+│   └── hosts.yml       # Tells Ansible which server(s) to connect to
 ├── group_vars/
-│   └── all.yml                # Shared variables (repo URL, ports, paths)
+│   └── all.yml         # Shared settings: repo URL, ports, folder paths
 ├── templates/
-│   └── env.j2                 # Jinja2 template — injects OpenAI key into .env
+│   └── env.j2          # Template that generates the .env file on the server
 └── playbooks/
-    ├── 01-provision.yml       # Fresh server setup: Docker, firewall, directories
-    ├── 02-deploy.yml          # Clone repo, inject secrets, docker compose up
-    ├── 03-update.yml          # Rolling update: rebuild backend → health check → frontend
-    └── 04-rollback.yml        # One-command rollback to previous Git commit
+    ├── 01-provision.yml
+    ├── 02-deploy.yml
+    ├── 03-update.yml
+    └── 04-rollback.yml
 ```
 
-### What each playbook does
-
-**01-provision.yml** — Run once on a brand new server:
-- Updates packages and installs system dependencies
-- Adds the official Docker apt repository and installs Docker Engine
-- Adds the app user to the `docker` group
-- Configures UFW firewall (allows ports 22, 8000, 3000 — denies everything else)
-- Creates the `/opt/rag-chatbot` application directory
-
-**02-deploy.yml** — Deploy the application:
-- Clones the GitHub repository to the server
-- Templates the `.env` file with the OpenAI API key (mode `0600` — owner only)
-- Builds and starts all containers via Docker Compose
-- Polls `/health` until the backend passes before finishing
-
-**03-update.yml** — Rolling update with zero downtime:
-- Pulls the latest code from GitHub
-- Rebuilds and restarts the backend first
-- Waits for the backend health check to pass
-- Only then rebuilds and restarts the frontend
-
-**04-rollback.yml** — Instant rollback:
-- Records the current commit hash
-- Resets to the previous commit (`HEAD~1`)
-- Rebuilds containers at the rolled-back version
-- Confirms health check passes and prints both commit hashes
-
-### Usage
+### How to use it (requires a Linux server)
 
 ```bash
-# Install Ansible (Mac)
+# Install Ansible on your Mac
 brew install ansible
 
-# 1. Edit inventory/hosts.yml — set your server IP and SSH key path
+# Step 1 — Edit ansible/inventory/hosts.yml
+#           Set your server's IP address and SSH key path
 
-# 2. Provision a fresh server (run once)
+# Step 2 — Set up the server (run once)
 ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/01-provision.yml
 
-# 3. Deploy the application
+# Step 3 — Deploy the app
 ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/02-deploy.yml \
   -e "openai_api_key=sk-proj-..."
 
-# 4. Push a code update
+# Step 4 — Push an update after new code is merged
 ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/03-update.yml
 
-# 5. Something broke? Roll back instantly
+# Step 5 — Something went wrong? Roll back instantly
 ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/04-rollback.yml
 ```
 
-### Key Ansible Features
+### Key features
 
-| Feature | Implementation |
+| Feature | What it means in plain English |
 |---|---|
-| **Secret injection** | OpenAI key passed via `-e` flag or env var, never stored in repo |
-| **Idempotent** | Safe to re-run any playbook — won't break a healthy deployment |
-| **Health-gated deploys** | Backend must pass `/health` before frontend is touched |
-| **Rollback** | Single command reverts to previous Git commit and rebuilds |
-| **Firewall automation** | UFW configured and enabled as part of provisioning |
-| **File permissions** | `.env` written with mode `0600` to protect the API key |
+| **Idempotent** | Safe to re-run any time — it only changes what needs changing |
+| **Secret injection** | OpenAI API key is passed at runtime, never saved in the repo |
+| **Health-gated deploys** | The backend must be healthy before the frontend is restarted |
+| **Rollback** | One command reverts the entire app to the previous working version |
+| **Firewall automation** | Server ports are locked down automatically — no manual config |
+| **File permissions** | The `.env` file is created with restricted permissions so only the app can read it |
 
 ---
 
