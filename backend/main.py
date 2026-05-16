@@ -12,6 +12,7 @@ import tempfile
 import shutil
 import json
 import os
+import requests as http_requests
 
 load_dotenv()
 
@@ -163,3 +164,70 @@ async def chat(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── Sentiment Analysis ────────────────────────────────────────────────────────
+
+HF_MODEL = "distilbert-base-uncased-finetuned-sst-2-english"
+HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+HF_TOKEN = os.getenv("HF_TOKEN", "")
+
+
+class SentimentRequest(BaseModel):
+    text: str
+
+
+@app.post("/sentiment")
+def analyze_sentiment(request: SentimentRequest):
+    text = request.text.strip()
+    if not text:
+        raise HTTPException(400, "Text cannot be empty")
+    if len(text) > 2000:
+        raise HTTPException(400, "Text must be under 2000 characters")
+
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+
+    try:
+        response = http_requests.post(
+            HF_API_URL,
+            headers=headers,
+            json={"inputs": text},
+            timeout=20,
+        )
+        response.raise_for_status()
+        raw = response.json()
+
+        # HF returns [[{label, score}, {label, score}]]
+        scores = raw[0] if isinstance(raw[0], list) else raw
+        score_map = {item["label"]: item["score"] for item in scores}
+
+        positive = score_map.get("POSITIVE", 0)
+        negative = score_map.get("NEGATIVE", 0)
+
+        # Treat as NEUTRAL when neither side is confident
+        if positive >= 0.65:
+            label = "POSITIVE"
+            confidence = positive
+        elif negative >= 0.65:
+            label = "NEGATIVE"
+            confidence = negative
+        else:
+            label = "NEUTRAL"
+            confidence = max(positive, negative)
+
+        return {
+            "label": label,
+            "confidence": round(confidence * 100, 1),
+            "scores": {
+                "positive": round(positive * 100, 1),
+                "negative": round(negative * 100, 1),
+            },
+            "model": HF_MODEL,
+            "char_count": len(text),
+        }
+
+    except http_requests.Timeout:
+        # HF cold-starts: model may be loading
+        raise HTTPException(503, "Model is loading on HuggingFace servers — try again in 20 seconds")
+    except Exception as e:
+        raise HTTPException(500, str(e))
