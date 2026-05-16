@@ -12,7 +12,6 @@ import tempfile
 import shutil
 import json
 import os
-import requests as http_requests
 
 load_dotenv()
 
@@ -168,66 +167,58 @@ async def chat(request: ChatRequest):
 
 # ── Sentiment Analysis ────────────────────────────────────────────────────────
 
-HF_MODEL = "distilbert-base-uncased-finetuned-sst-2-english"
-HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-
-
 class SentimentRequest(BaseModel):
     text: str
 
 
 @app.post("/sentiment")
-def analyze_sentiment(request: SentimentRequest):
+async def analyze_sentiment(request: SentimentRequest):
     text = request.text.strip()
     if not text:
         raise HTTPException(400, "Text cannot be empty")
     if len(text) > 2000:
         raise HTTPException(400, "Text must be under 2000 characters")
 
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+    prompt = f"""You are a sentiment analysis classifier. Analyze the sentiment of the text below and respond with ONLY valid JSON — no markdown, no explanation, just the JSON object.
+
+Format:
+{{
+  "label": "POSITIVE" | "NEGATIVE" | "NEUTRAL",
+  "confidence": <integer 0-100>,
+  "scores": {{
+    "positive": <integer 0-100>,
+    "negative": <integer 0-100>,
+    "neutral": <integer 0-100>
+  }},
+  "reasoning": "<one concise sentence explaining the classification>"
+}}
+
+Rules:
+- scores must add up to 100
+- confidence = the score of the winning label
+- be objective and accurate
+
+Text to analyze:
+\"\"\"{text}\"\"\""""
 
     try:
-        response = http_requests.post(
-            HF_API_URL,
-            headers=headers,
-            json={"inputs": text},
-            timeout=20,
-        )
-        response.raise_for_status()
-        raw = response.json()
+        response = await llm.ainvoke(prompt)
+        raw = response.content.strip()
 
-        # HF returns [[{label, score}, {label, score}]]
-        scores = raw[0] if isinstance(raw[0], list) else raw
-        score_map = {item["label"]: item["score"] for item in scores}
+        # Strip markdown code fences if model wraps the JSON
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
 
-        positive = score_map.get("POSITIVE", 0)
-        negative = score_map.get("NEGATIVE", 0)
+        result = json.loads(raw.strip())
+        result["model"] = "gpt-4o-mini"
+        result["char_count"] = len(text)
+        return result
 
-        # Treat as NEUTRAL when neither side is confident
-        if positive >= 0.65:
-            label = "POSITIVE"
-            confidence = positive
-        elif negative >= 0.65:
-            label = "NEGATIVE"
-            confidence = negative
-        else:
-            label = "NEUTRAL"
-            confidence = max(positive, negative)
-
-        return {
-            "label": label,
-            "confidence": round(confidence * 100, 1),
-            "scores": {
-                "positive": round(positive * 100, 1),
-                "negative": round(negative * 100, 1),
-            },
-            "model": HF_MODEL,
-            "char_count": len(text),
-        }
-
-    except http_requests.Timeout:
-        # HF cold-starts: model may be loading
-        raise HTTPException(503, "Model is loading on HuggingFace servers — try again in 20 seconds")
+    except json.JSONDecodeError:
+        raise HTTPException(500, "Model returned an unexpected response format")
     except Exception as e:
         raise HTTPException(500, str(e))

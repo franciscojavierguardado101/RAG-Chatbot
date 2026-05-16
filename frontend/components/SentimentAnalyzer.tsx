@@ -18,7 +18,8 @@ type Sentiment = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | null;
 interface Result {
   label: Sentiment;
   confidence: number;
-  scores: { positive: number; negative: number };
+  scores: { positive: number; negative: number; neutral: number };
+  reasoning: string;
   model: string;
   char_count: number;
 }
@@ -111,13 +112,13 @@ export default function SentimentAnalyzer() {
         {/* Model badge */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs px-2 py-1 rounded-full bg-accent/20 border border-accent/30 text-accent-light">
-            Model: distilbert-base-uncased-finetuned-sst-2-english
+            Model: gpt-4o-mini
           </span>
           <span className="text-xs px-2 py-1 rounded-full bg-surface-card border border-surface-border text-slate-500">
-            HuggingFace Inference API
+            LLM Classification
           </span>
           <span className="text-xs px-2 py-1 rounded-full bg-surface-card border border-surface-border text-slate-500">
-            Transfer Learning
+            Structured Output
           </span>
         </div>
 
@@ -201,16 +202,28 @@ export default function SentimentAnalyzer() {
             </div>
 
             {/* Score breakdown */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="bg-black/20 rounded-xl px-4 py-3">
-                <p className="text-xs text-slate-500 mb-1">Positive score</p>
+                <p className="text-xs text-slate-500 mb-1">Positive</p>
                 <p className="text-lg font-bold text-emerald-400">{result.scores.positive}%</p>
               </div>
               <div className="bg-black/20 rounded-xl px-4 py-3">
-                <p className="text-xs text-slate-500 mb-1">Negative score</p>
+                <p className="text-xs text-slate-500 mb-1">Negative</p>
                 <p className="text-lg font-bold text-red-400">{result.scores.negative}%</p>
               </div>
+              <div className="bg-black/20 rounded-xl px-4 py-3">
+                <p className="text-xs text-slate-500 mb-1">Neutral</p>
+                <p className="text-lg font-bold text-slate-400">{result.scores.neutral}%</p>
+              </div>
             </div>
+
+            {/* Reasoning */}
+            {result.reasoning && (
+              <div className="bg-black/20 rounded-xl px-4 py-3">
+                <p className="text-xs text-slate-500 mb-1 uppercase tracking-wider font-semibold">Why</p>
+                <p className="text-sm text-slate-300">{result.reasoning}</p>
+              </div>
+            )}
 
             {/* Meta */}
             <p className="text-xs text-slate-600">
